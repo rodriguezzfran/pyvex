@@ -169,10 +169,8 @@ class LibVEXLifter(Lifter):
                     log.debug(log_str)
 
             self.irsbs: list[IRSB] = [None] * r
-            new_start_addr = self.addr
             for i in range(r):
-                self.irsbs[i] = IRSB.empty_block(self.arch, new_start_addr)
-                new_start_addr += lift_results[i].size
+                self.irsbs[i] = IRSB.empty_block(self.arch, lift_results[i].inst_addrs[0])  # Assuming inst_addrs[0] gives the firs address of the block
                 self.irsbs[i]._from_c(lift_results[i], skip_stmts=self.skip_stmts)
 
         finally:
