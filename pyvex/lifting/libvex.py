@@ -7,7 +7,7 @@ from pyvex.errors import LiftingException
 from pyvex.native import ffi, pvc
 from pyvex.types import CLiftSource, LibvexArch
 
-from .lift_function import Lifter
+from .lifter import Lifter
 
 log = logging.getLogger("pyvex.lifting.libvex")
 
@@ -127,7 +127,7 @@ class LibVEXLifter(Lifter):
 
         try:
             _libvex_lock.acquire()
-            self.irsb.arch.vex_archinfo["hwcache_info"]["caches"] = ffi.NULL
+            self.arch.vex_archinfo["hwcache_info"]["caches"] = ffi.NULL
 
             vex_arch = getattr(pvc, self.arch.vex_arch, None)
             assert vex_arch is not None
@@ -169,10 +169,12 @@ class LibVEXLifter(Lifter):
                     log.debug(log_str)
 
             self.irsbs: list[IRSB] = [None] * r
+            new_start_addr = self.addr
             for i in range(r):
-                self.irsbs[i] = IRSB.empty_block(self.irsb.arch, self.irsb.addr + i * self.irsb.size)
+                self.irsbs[i] = IRSB.empty_block(self.arch, new_start_addr)
+                new_start_addr += lift_results[i].size
                 self.irsbs[i]._from_c(lift_results[i], skip_stmts=self.skip_stmts)
 
         finally:
             _libvex_lock.release()
-            self.irsb.arch.vex_archinfo["hwcache_info"]["caches"] = None
+            self.arch.vex_archinfo["hwcache_info"]["caches"] = None
