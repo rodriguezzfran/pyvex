@@ -132,6 +132,20 @@ class LibVEXLifter(Lifter):
             vex_arch = getattr(pvc, self.arch.vex_arch, None)
             assert vex_arch is not None
 
+            if self.max_bytes is None or self.max_bytes > VEX_MAX_BYTES:
+                max_bytes = VEX_MAX_BYTES
+            else:
+                max_bytes = self.max_bytes
+
+            if self.max_inst is None or self.max_inst > VEX_MAX_INSTRUCTIONS:
+                max_inst = VEX_MAX_INSTRUCTIONS
+            else:
+                max_inst = self.max_inst
+
+            strict_block_end = self.strict_block_end
+            if strict_block_end is None:
+                strict_block_end = True
+
             if self.cross_insn_opt:
                 px_control = VexRegisterUpdates.VexRegUpdUnwindregsAtMemAccess
             else:
@@ -147,8 +161,8 @@ class LibVEXLifter(Lifter):
                 self.arch.vex_archinfo,
                 self.addr,
                 self.max_blocks,
-                self.max_inst,
-                self.max_bytes,
+                max_inst,
+                max_bytes,
                 self.opt_level,
                 self.traceflags,
                 1 if self.allow_arch_optimizations else 0,
