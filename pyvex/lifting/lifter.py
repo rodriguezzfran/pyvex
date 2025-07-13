@@ -126,17 +126,26 @@ class Lifter:
 
     def lift_multi(
         self,
-        max_blocks: int = 100,
-        opt_level: int = 1,
-        traceflags: int = 0,
-        allow_arch_optimizations: bool = True,
-        strict_block_end: bool = True,
+        data: LiftSource,
+        max_blocks: int | None = 100,
+        bytes_offset: int | None = None,
+        max_bytes: int | None = None,
+        max_inst: int | None = None,
+        opt_level: int | float = 1,
+        traceflags: int | None = 0,
+        allow_arch_optimizations: bool | None = None,
+        strict_block_end: bool | None = None,
         collect_data_refs: bool = False,
         load_from_ro_regions: bool = False,
         const_prop: bool = False,
         cross_insn_opt: bool = True,
+        skip_stmts: bool = False,
     ) -> list[IRSB]:
+        self.data = data
         self.max_blocks = max_blocks
+        self.bytes_offset = bytes_offset
+        self.max_bytes = max_bytes
+        self.max_inst = max_inst
         self.opt_level = opt_level
         self.traceflags = traceflags
         self.allow_arch_optimizations = allow_arch_optimizations
@@ -145,6 +154,7 @@ class Lifter:
         self.load_from_ro_regions = load_from_ro_regions
         self.const_prop = const_prop
         self.cross_insn_opt = cross_insn_opt
+        self.skip_stmts = skip_stmts
         self.irsbs: list[IRSB] = []
         self._lift_multi()
         return self.irsbs
