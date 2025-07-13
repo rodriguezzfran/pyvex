@@ -121,6 +121,7 @@ class LibVEXLifter(Lifter):
 
         if TYPE_CHECKING:
             assert isinstance(self.arch, LibvexArch)
+            assert isinstance(self.data, CLiftSource)
 
         # lift_results = pvc.VEXLiftResult * [ffi.NULL] * self.max_blocks
         lift_results = ffi.new("VEXLiftResult[]", self.max_blocks)
@@ -156,9 +157,10 @@ class LibVEXLifter(Lifter):
 
             # TODO: Fix this call; I'm sure the arguments are wrong
             # TODO: Also remove references to self.irsb; arch does not have to be part of .irsb. We are dealing with multiple blocks, so we should use self.irsbs instead
-            r = pvc.vex_lift_multi(
+            r: int = pvc.vex_lift_multi(
                 vex_arch,
                 self.arch.vex_archinfo,
+                self.data + self.bytes_offset,
                 self.addr,
                 self.max_blocks,
                 max_inst,
@@ -171,7 +173,7 @@ class LibVEXLifter(Lifter):
                 1 if self.load_from_ro_regions else 0,
                 1 if self.const_prop else 0,
                 px_control,
-                self.bytes_offset, # is this argument necessary?
+                self.bytes_offset,
                 lift_results,
             )
 

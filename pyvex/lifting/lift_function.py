@@ -8,7 +8,7 @@ from pyvex.const import vex_int_class
 from pyvex.errors import LiftingException, NeedStatementsNotification, PyVEXError, SkipStatementsError
 from pyvex.expr import Const
 from pyvex.native import ffi
-from pyvex.types import LiftSource, PyLiftSource
+from pyvex.types import LiftSource, PyLiftSource, CLiftSource
 
 from .lifter import Lifter
 from .post_processor import Postprocessor
@@ -25,7 +25,7 @@ def pre_lift_checks(
     data: LiftSource,
     max_bytes: int | None = None,
     opt_level: int = 1,
-):
+) -> tuple[PyLiftSource | None, CLiftSource | None, bool, int]:
     if max_bytes is not None and max_bytes <= 0:
         raise PyVEXError("Cannot lift block with no data (max_bytes <= 0)")
 
@@ -56,7 +56,7 @@ def pre_lift_checks(
         allow_arch_optimizations = False
         opt_level = 0
 
-    return py_data, c_data, allow_arch_optimizations
+    return py_data, c_data, allow_arch_optimizations, opt_level
 
 def get_initial_data_and_skip(
         lifter: Lifter,
@@ -67,7 +67,7 @@ def get_initial_data_and_skip(
         max_bytes: int | None,
         bytes_offset: int,
         arch_name: str,
-) -> LiftSource:
+) -> tuple[LiftSource | None, int]:
     u_data: LiftSource = data
     if lifter.REQUIRE_DATA_C:
         if c_data is None:
@@ -89,7 +89,9 @@ def get_initial_data_and_skip(
             assert c_data is not None
             if max_bytes is None:
                 log.debug("Cannot create py_data from c_data when no max length is given")
-                return None, 0 # or maybe raise an error and catch it later.
+                raise LiftingException( # Or maybe PyVEXError? In that case we have to modify the except statement in line 207
+                    "Cannot create py_data from c_data when no max length is given"
+                )
             u_data = ffi.buffer(c_data + skip, max_bytes)[:]
         else:
             if max_bytes is None:
@@ -151,7 +153,7 @@ def lift(
               ends properly or until it runs out of data to lift.
     """
     
-    py_data, c_data, allow_arch_optimizations = pre_lift_checks(data, max_bytes, opt_level)
+    py_data, c_data, allow_arch_optimizations, opt_level = pre_lift_checks(data, max_bytes, opt_level)
 
     for lifter in lifters[arch.name]:
         try:
@@ -165,8 +167,6 @@ def lift(
                 bytes_offset,
                 arch.name,
             )
-            if u_data is None:
-                continue
 
             try:
                 final_irsb = lifter(arch, addr).lift(
@@ -329,6 +329,9 @@ def lift_multi(
     data: LiftSource,
     addr: int,
     arch: Arch, # "Arch" temporal
+    max_bytes: int | None = None,
+    max_inst: int | None = None,
+    bytes_offset: int = 0,
     max_blocks: int = 100,
     opt_level: int = 1,
     trace_flags: int = 0,
@@ -343,27 +346,62 @@ def lift_multi(
     Lifts multiple blocks at once starting from the given address.
     """
 
-    allow_arch_optimizations = True
-
     if arch.name not in LIBVEX_SUPPORTED_ARCHES:
         raise PyVEXError("Multi-block lifting is only supported for architectures which are registered with LibVEXLifter.")
 
+    py_data, c_data, allow_arch_optimizations, opt_level = pre_lift_checks(data, max_bytes, opt_level)
+
     try:
-        return LibVEXLifter(arch, addr).lift_multi(
-            max_blocks = max_blocks,
-            opt_level = opt_level,
-            traceflags = trace_flags,
-            allow_arch_optimizations = allow_arch_optimizations,
-            strict_block_end = strict_block_end,
-            collect_data_refs = collect_data_refs,
-            load_from_ro_regions = load_from_ro_regions,
-            const_prop = const_prop,
-            cross_insn_opt = cross_insn_opt,
-            skip_stmts= skip_stmts,
-        )
+        lifter = LibVEXLifter(arch, addr)
+        u_data, skip = get_initial_data_and_skip(
+                lifter,
+                addr,
+                data,
+                py_data,
+                c_data,
+                max_bytes,
+                bytes_offset,
+                arch.name,
+            )
+        try:
+            irsbs_list = lifter.lift_multi(
+                u_data,
+                max_blocks = max_blocks,
+                bytes_offset = bytes_offset - skip,
+                max_bytes = max_bytes,
+                max_inst = max_inst,
+                opt_level = opt_level,
+                traceflags = trace_flags,
+                allow_arch_optimizations = allow_arch_optimizations,
+                strict_block_end = strict_block_end,
+                collect_data_refs = collect_data_refs,
+                load_from_ro_regions = load_from_ro_regions,
+                const_prop = const_prop,
+                cross_insn_opt = cross_insn_opt,
+                skip_stmts= skip_stmts,
+            )
+        except SkipStatementsError:
+            assert skip_stmts is True
+            irsbs_list = lifter.lift_multi(
+                u_data,
+                max_blocks = max_blocks,
+                bytes_offset = bytes_offset - skip,
+                max_bytes = max_bytes,
+                max_inst = max_inst,
+                opt_level = opt_level,
+                traceflags = trace_flags,
+                allow_arch_optimizations = allow_arch_optimizations,
+                strict_block_end = strict_block_end,
+                collect_data_refs = collect_data_refs,
+                load_from_ro_regions = load_from_ro_regions,
+                const_prop = const_prop,
+                cross_insn_opt = cross_insn_opt,
+                skip_stmts=False,
+            )
+        return irsbs_list
     except LiftingException as ex:
         log.debug("Lifting Exception: %s", str(ex))
-        return None
+        return [] # Here should we return an empty list, None or a list with a single empty block with the Ijk_NoDecode jumpkind?
 
 def register(lifter, arch_name):
     """

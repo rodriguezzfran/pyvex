@@ -126,6 +126,7 @@ class Lifter:
 
     def lift_multi(
         self,
+        data: LiftSource,
         max_blocks: int | None = 100,
         bytes_offset: int | None = None,
         max_bytes: int | None = None,
@@ -140,6 +141,7 @@ class Lifter:
         cross_insn_opt: bool = True,
         skip_stmts: bool = False,
     ) -> list[IRSB]:
+        self.data = data
         self.max_blocks = max_blocks
         self.bytes_offset = bytes_offset
         self.max_bytes = max_bytes
