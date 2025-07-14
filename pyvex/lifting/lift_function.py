@@ -102,7 +102,7 @@ def get_initial_data_and_skip(
         raise RuntimeError(
             "Incorrect lifter configuration. What type of data does %s expect?" % lifter.__class__
         )
-    
+
     return u_data, skip
 
 def lift(
@@ -152,7 +152,7 @@ def lift(
     .. note:: If no instruction and byte limit is used, pyvex will continue lifting the block until the block
               ends properly or until it runs out of data to lift.
     """
-    
+
     py_data, c_data, allow_arch_optimizations, opt_level = pre_lift_checks(data, max_bytes, opt_level)
 
     for lifter in lifters[arch.name]:
@@ -380,7 +380,8 @@ def lift_multi(
                 cross_insn_opt = cross_insn_opt,
                 skip_stmts= skip_stmts,
             )
-        except SkipStatementsError:
+        except SkipStatementsError: # This is wrong because we are lifting multiple blocks and with this behavior,
+            #if we hit a skip statement in one block, we will skip all subsequent blocks and try to lift them without statements.
             assert skip_stmts is True
             irsbs_list = lifter.lift_multi(
                 u_data,
