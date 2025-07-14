@@ -498,29 +498,8 @@ int vex_lift_multi(
 			
 		}
 
-
-		
-
-		
-
-
-
-
-
 	}
 	
-	
-
-
-
-
-
-
-
-	
-
-
-
 	// TODO: Implement this function
 	//
 	// Hints:
@@ -528,6 +507,6 @@ int vex_lift_multi(
 	// - Prior to performing CFG analysis, angr calls `register_readonly_region` to register read-only memory regions.
 	// - You can call `find_region` to find the index of a region. See how `find_region` is used in `analysis.c`.
 
-	// NOTA CONCLUSIVA -> No usamos pragma omp porque no hay manera de predecir la proxima dirección a levantar
+	// Note -> We dont use pragma omp because there is no way to predict the next address to lift in a for loop
 	return -1;
 }
