@@ -50,7 +50,7 @@ class LibVEXLifter(Lifter):
     @staticmethod
     def get_vex_log():
         return bytes(ffi.buffer(pvc.msg_buffer, pvc.msg_current_size)).decode() if pvc.msg_buffer != ffi.NULL else None
-    
+
     def _parameters_check(self):
         if self.bytes_offset is None:
             self.bytes_offset = 0

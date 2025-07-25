@@ -47,6 +47,8 @@ class Lifter:
     REQUIRE_DATA_C = False
     REQUIRE_DATA_PY = False
 
+    MAX_BLOCKS_FOR_MULTI_LIFT = 1000
+
     def __init__(self, arch: Arch, addr: int):
         self.arch: Arch = arch
         self.addr: int = addr
@@ -141,8 +143,31 @@ class Lifter:
         cross_insn_opt: bool = True,
         skip_stmts: bool = False,
     ) -> list[IRSB]:
+        """
+        Wrapper around the `_lift_multi` method on Lifters. Should not be overridden in child classes.
+
+        :param data:                The bytes to lift as either a python string of bytes or a cffi buffer object.
+        :param max_blocks:          The maximum number of blocks to lift. If set to None, a limit of MAX_BLOCKS_FOR_MULTI_LIFT blocks is used.
+        :param bytes_offset:        The offset into `data` to start lifting at.
+        :param max_bytes:           The maximum number of bytes to lift. If set to None, no byte limit is used.
+        :param max_inst:            The maximum number of instructions to lift. If set to None, no instruction limit is
+                                    used.
+        :param opt_level:           The level of optimization to apply to the IR, 0-2. Most likely will be ignored in
+                                    any lifter other then LibVEX.
+        :param traceflags:          The libVEX traceflags, controlling VEX debug prints. Most likely will be ignored in
+                                    any lifter other than LibVEX.
+        :param allow_arch_optimizations:   Should the LibVEX lifter be allowed to perform lift-time preprocessing
+                                    optimizations (e.g., lookback ITSTATE optimization on THUMB) Most likely will be
+                                    ignored in any lifter other than LibVEX.
+        :param strict_block_end:    Should the LibVEX arm-thumb split block at some instructions, for example CB{N}Z.
+        :param skip_stmts:          Should the lifter skip transferring IRStmts from C to Python.
+        :param collect_data_refs:   Should the LibVEX lifter collect data references in C.
+        :param cross_insn_opt:      If cross-instruction-boundary optimizations are allowed or not.
+        :param disasm:              Should the GymratLifter generate disassembly during lifting.
+        :param dump_irsb:           Should the GymratLifter log the lifted IRSB.
+        """
         self.data = data
-        self.max_blocks = max_blocks
+        self.max_blocks = max_blocks or self.MAX_BLOCKS_FOR_MULTI_LIFT
         self.bytes_offset = bytes_offset
         self.max_bytes = max_bytes
         self.max_inst = max_inst
@@ -158,6 +183,6 @@ class Lifter:
         self.irsbs: list[IRSB] = []
         self._lift_multi()
         return self.irsbs
-    
+
     def _lift_multi(self) -> None:
         raise NotImplementedError()

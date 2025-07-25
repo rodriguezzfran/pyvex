@@ -341,7 +341,7 @@ def lift_multi(
     strict_block_end: bool = True,
     const_prop: bool = False,
     cross_insn_opt: bool = True,
-) -> list[IRSB] | None:
+) -> list[IRSB]:
     """
     Lifts multiple blocks at once starting from the given address.
     """
@@ -363,46 +363,28 @@ def lift_multi(
                 bytes_offset,
                 arch.name,
             )
-        try:
-            irsbs_list = lifter.lift_multi(
-                u_data,
-                max_blocks = max_blocks,
-                bytes_offset = bytes_offset - skip,
-                max_bytes = max_bytes,
-                max_inst = max_inst,
-                opt_level = opt_level,
-                traceflags = trace_flags,
-                allow_arch_optimizations = allow_arch_optimizations,
-                strict_block_end = strict_block_end,
-                collect_data_refs = collect_data_refs,
-                load_from_ro_regions = load_from_ro_regions,
-                const_prop = const_prop,
-                cross_insn_opt = cross_insn_opt,
-                skip_stmts= skip_stmts,
-            )
-        except SkipStatementsError: # This is wrong because we are lifting multiple blocks and with this behavior,
-            #if we hit a skip statement in one block, we will skip all subsequent blocks and try to lift them without statements.
-            assert skip_stmts is True
-            irsbs_list = lifter.lift_multi(
-                u_data,
-                max_blocks = max_blocks,
-                bytes_offset = bytes_offset - skip,
-                max_bytes = max_bytes,
-                max_inst = max_inst,
-                opt_level = opt_level,
-                traceflags = trace_flags,
-                allow_arch_optimizations = allow_arch_optimizations,
-                strict_block_end = strict_block_end,
-                collect_data_refs = collect_data_refs,
-                load_from_ro_regions = load_from_ro_regions,
-                const_prop = const_prop,
-                cross_insn_opt = cross_insn_opt,
-                skip_stmts=False,
-            )
+
+        irsbs_list = lifter.lift_multi(
+            u_data,
+            max_blocks = max_blocks,
+            bytes_offset = bytes_offset - skip,
+            max_bytes = max_bytes,
+            max_inst = max_inst,
+            opt_level = opt_level,
+            traceflags = trace_flags,
+            allow_arch_optimizations = allow_arch_optimizations,
+            strict_block_end = strict_block_end,
+            collect_data_refs = collect_data_refs,
+            load_from_ro_regions = load_from_ro_regions,
+            const_prop = const_prop,
+            cross_insn_opt = cross_insn_opt,
+            skip_stmts= skip_stmts,
+        )
+
         return irsbs_list
     except LiftingException as ex:
         log.debug("Lifting Exception: %s", str(ex))
-        return [] # Here should we return an empty list, None or a list with a single empty block with the Ijk_NoDecode jumpkind?
+        return []
 
 def register(lifter, arch_name):
     """
