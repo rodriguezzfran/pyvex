@@ -67,7 +67,7 @@ def get_initial_data_and_skip(
         max_bytes: int | None,
         bytes_offset: int,
         arch_name: str,
-) -> tuple[LiftSource | None, int]:
+) -> tuple[LiftSource | None, int, int | None]:
     u_data: LiftSource = data
     if lifter.REQUIRE_DATA_C:
         if c_data is None:
@@ -103,7 +103,7 @@ def get_initial_data_and_skip(
             "Incorrect lifter configuration. What type of data does %s expect?" % lifter.__class__
         )
 
-    return u_data, skip
+    return u_data, skip, max_bytes
 
 def lift(
     data: LiftSource,
@@ -157,7 +157,7 @@ def lift(
 
     for lifter in lifters[arch.name]:
         try:
-            u_data, skip = get_initial_data_and_skip(
+            u_data, skip, max_bytes = get_initial_data_and_skip(
                 lifter,
                 addr,
                 data,
@@ -328,9 +328,7 @@ def lift(
 def lift_multi(
     data: LiftSource,
     addr: int,
-    arch: Arch, # "Arch" temporal
-    max_bytes: int | None = None,
-    max_inst: int | None = None,
+    arch: Arch,
     bytes_offset: int = 0,
     max_blocks: int = 100,
     opt_level: int = 1,
@@ -349,17 +347,16 @@ def lift_multi(
     if arch.name not in LIBVEX_SUPPORTED_ARCHES:
         raise PyVEXError("Multi-block lifting is only supported for architectures which are registered with LibVEXLifter.")
 
-    py_data, c_data, allow_arch_optimizations, opt_level = pre_lift_checks(data, max_bytes, opt_level)
+    py_data, c_data, allow_arch_optimizations, opt_level = pre_lift_checks(data=data, opt_level=opt_level)
 
     try:
         lifter = LibVEXLifter(arch, addr)
-        u_data, skip = get_initial_data_and_skip(
+        u_data, skip, _ = get_initial_data_and_skip(
                 lifter,
                 addr,
                 data,
                 py_data,
                 c_data,
-                max_bytes,
                 bytes_offset,
                 arch.name,
             )
@@ -368,8 +365,6 @@ def lift_multi(
             u_data,
             max_blocks = max_blocks,
             bytes_offset = bytes_offset - skip,
-            max_bytes = max_bytes,
-            max_inst = max_inst,
             opt_level = opt_level,
             traceflags = trace_flags,
             allow_arch_optimizations = allow_arch_optimizations,
