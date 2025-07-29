@@ -330,6 +330,7 @@ def lift_multi(
     addr: int,
     arch: Arch,
     bytes_offset: int = 0,
+    max_bytes: int | None = None,
     max_blocks: int = 100,
     opt_level: int = 1,
     trace_flags: int = 0,
@@ -347,7 +348,7 @@ def lift_multi(
     if arch.name not in LIBVEX_SUPPORTED_ARCHES:
         raise PyVEXError("Multi-block lifting is only supported for architectures which are registered with LibVEXLifter.")
 
-    py_data, c_data, allow_arch_optimizations, opt_level = pre_lift_checks(data=data, opt_level=opt_level)
+    py_data, c_data, allow_arch_optimizations, opt_level = pre_lift_checks(data=data, max_bytes=max_bytes, opt_level=opt_level)
 
     try:
         lifter = LibVEXLifter(arch, addr)
@@ -357,6 +358,7 @@ def lift_multi(
                 data,
                 py_data,
                 c_data,
+                max_bytes,
                 bytes_offset,
                 arch.name,
             )
@@ -365,6 +367,7 @@ def lift_multi(
             u_data,
             max_blocks = max_blocks,
             bytes_offset = bytes_offset - skip,
+            max_bytes=max_bytes,
             opt_level = opt_level,
             traceflags = trace_flags,
             allow_arch_optimizations = allow_arch_optimizations,
