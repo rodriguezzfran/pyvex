@@ -564,7 +564,10 @@ int vex_lift_multi(
 	init_queue(&multi_lift_queue, max_blocks);
 
 	int blocks_lifted = 0; // Counter for lifted blocks
-	
+
+	// Save the initial instruction bytes pointer
+	unsigned char *initial_insn_start = insn_start;
+
 	if (setjmp(jumpout) == 0) {
 
 		// Initialize the first address in the queue
@@ -576,9 +579,8 @@ int vex_lift_multi(
 			Addr current_addr = dequeue(&multi_lift_queue);
 			
 			// Calculate the byte pointer for the current address
-			// current_bytes = base_pointer + offset_from_base
-			unsigned char *current_bytes = insn_start + (current_addr - insn_addr);
-
+			unsigned char *current_bytes = initial_insn_start + (current_addr - insn_addr);
+			
 			// TODO: Ask fish if this is correct or if I should update the base calculation
 
 			// Update VTA with the current address and byte pointer
