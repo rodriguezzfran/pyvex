@@ -340,10 +340,10 @@ static void exits_to_fifo (VEXLiftResult *simple_irsb_result, AddressQueue *queu
 	// First, the default exit address
 	enqueue(queue, simple_irsb_result->default_exit);
 
-	// Enqueue all exit addresses into the FIFO queue
-	for (size_t i = 0; i < simple_irsb_result->exit_count; i++) {
-		enqueue(queue, simple_irsb_result->exits[i].ins_addr);
-	}
+	// // Enqueue all exit addresses into the FIFO queue
+	// for (size_t i = 0; i < simple_irsb_result->exit_count; i++) {
+	// 	enqueue(queue, simple_irsb_result->exits[i].ins_addr);
+	// }
 
 }
 
@@ -575,7 +575,11 @@ int vex_lift_multi(
 			// Dequeue the next address to lift
 			Addr current_addr = dequeue(&multi_lift_queue);
 			
-			// TODO: Check how to make the current bytes pointer
+			// Calculate the byte pointer for the current address
+			// current_bytes = base_pointer + offset_from_base
+			unsigned char *current_bytes = insn_start + (current_addr - insn_addr);
+
+			// TODO: Ask fish if this is correct or if I should update the base calculation
 
 			// Update VTA with the current address and byte pointer
 			vex_update_vta_address(current_addr, current_bytes);
