@@ -132,7 +132,6 @@ class Lifter:
         max_blocks: int | None = 100,
         bytes_offset: int | None = None,
         max_bytes: int | None = None,
-        max_inst: int | None = None,
         opt_level: int | float = 1,
         traceflags: int | None = 0,
         allow_arch_optimizations: bool | None = None,
@@ -170,7 +169,6 @@ class Lifter:
         self.max_blocks = max_blocks or self.MAX_BLOCKS_FOR_MULTI_LIFT
         self.bytes_offset = bytes_offset
         self.max_bytes = max_bytes
-        self.max_inst = max_inst
         self.opt_level = opt_level
         self.traceflags = traceflags
         self.allow_arch_optimizations = allow_arch_optimizations
