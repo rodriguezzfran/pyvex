@@ -4,7 +4,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 project(pyvex LANGUAGES C)
 
 # Add debug flags globally
-add_compile_options(-g -O0)
+add_compile_options(-O2)
 
 # Avoid strip
 set(CMAKE_BUILD_TYPE Debug)

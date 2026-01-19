@@ -42,6 +42,9 @@ class VexRegisterUpdates:
     VexRegUpdLdAllregsAtEachInsn = 0x705
 
 
+lift_results = ffi.new("VEXLiftResult[]", 1000)
+
+
 class LibVEXLifter(Lifter):
     __slots__ = ()
 
@@ -124,7 +127,6 @@ class LibVEXLifter(Lifter):
             assert isinstance(self.arch, LibvexArch)
             assert isinstance(self.data, CLiftSource)
 
-        lift_results = ffi.new("VEXLiftResult[]", self.max_blocks)
 
         try:
             _libvex_lock.acquire()
