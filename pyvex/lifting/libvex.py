@@ -32,6 +32,9 @@ LIBVEX_SUPPORTED_ARCHES = {
 VEX_MAX_INSTRUCTIONS = 99
 VEX_MAX_BYTES = 400
 
+import time
+data_tranfers_amnt: dict[int, float] = {}
+
 
 class VexRegisterUpdates:
     VexRegUpd_INVALID = 0x700
@@ -88,6 +91,10 @@ class LibVEXLifter(Lifter):
             px_control = self._parameters_check_and_get_px_control()
 
             self.irsb.arch.vex_archinfo["hwcache_info"]["caches"] = ffi.NULL
+
+            global data_tranfers_amnt
+
+            data_tranfers_init_time = time.time()
             lift_r = pvc.vex_lift(
                 vex_arch,
                 self.irsb.arch.vex_archinfo,
@@ -106,6 +113,7 @@ class LibVEXLifter(Lifter):
                 self.bytes_offset,
                 True
             )
+            data_tranfers_amnt.update({len(data_tranfers_amnt): time.time() - data_tranfers_init_time})
             log_str = self.get_vex_log()
             if lift_r == ffi.NULL:
                 raise LiftingException("libvex: unknown error" if log_str is None else log_str)
@@ -137,6 +145,10 @@ class LibVEXLifter(Lifter):
 
             px_control = self._parameters_check_and_get_px_control()
 
+            global data_tranfers_amnt
+
+            data_tranfers_init_time = time.time()
+
             r: int = pvc.vex_lift_multi(
                 vex_arch,
                 self.arch.vex_archinfo,
@@ -158,6 +170,7 @@ class LibVEXLifter(Lifter):
                 lift_results,
             )
 
+            data_tranfers_amnt.update({len(data_tranfers_amnt): time.time() - data_tranfers_init_time})
 
             log_str = self.get_vex_log()
             if r == -1:
