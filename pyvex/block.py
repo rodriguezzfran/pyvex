@@ -28,8 +28,8 @@ from .types import Arch
 
 log = logging.getLogger("pyvex.block")
 
-import time
-exit_stmts_times_dict: dict[int, float] = {}
+# import time
+# exit_stmts_times_dict: dict[int, float] = {}
 
 
 class IRSB(VEXObject):
@@ -205,7 +205,7 @@ class IRSB(VEXObject):
                 ins_addr = stmt_.addr + stmt_.delta
             elif type(stmt_) is Exit:
                 assert ins_addr is not None
-                exit_statements.append((ins_addr, idx, stmt_))
+                exit_statements.append((ins_addr, idx, stmt_.dst, stmt_.jumpkind))
 
         self._exit_statements = tuple(exit_statements)
         return self._exit_statements
@@ -567,7 +567,7 @@ class IRSB(VEXObject):
         # Conditional exits
         exit_statements = []
         if skip_stmts:
-            exit_statements_init_time = time.time()
+            # exit_statements_init_time = time.time()
             if lift_r.exit_count > self.MAX_EXITS:
                 # There are more exits than the default size of the exits array. We will need all statements
                 raise SkipStatementsError("exit_count exceeded MAX_EXITS (%d)" % self.MAX_EXITS)
@@ -580,8 +580,8 @@ class IRSB(VEXObject):
                 #exit_statements.append((ex.ins_addr, ex.stmt_idx, exit_stmt.dst, exit_stmt.jumpkind))
 
             self._exit_statements = tuple(exit_statements)
-            global exit_stmts_times_dict
-            exit_stmts_times_dict.update({len(exit_stmts_times_dict): time.time() - exit_statements_init_time})
+            # global exit_stmts_times_dict
+            # exit_stmts_times_dict.update({len(exit_stmts_times_dict): time.time() - exit_statements_init_time})
         else:
             self._exit_statements = None  # It will be generated when self.exit_statements is called
         # The default exit
