@@ -4,7 +4,7 @@ import logging
 from typing import Optional
 
 from . import expr, stmt
-from .const import U1, get_type_size, IRConst
+from .const import U1, get_type_size, IRConst, vex_int_class
 from .const_val import ConstVal
 from .data_ref import DataRef
 from .enums import VEXObject
@@ -557,7 +557,7 @@ class IRSB(VEXObject):
             self.statements = None
             self.tyenv = None
 
-        self.next = expr.IRExpr._from_c(c_irsb.next)
+        #self.next = expr.IRExpr._from_c(c_irsb.next)
         self.jumpkind = get_enum_from_int(c_irsb.jumpkind)
         self._size = lift_r.size
         self.is_noop_block = lift_r.is_noop_block == 1
@@ -589,6 +589,15 @@ class IRSB(VEXObject):
             self.default_exit_target = lift_r.default_exit
         else:
             self.default_exit_target = None
+
+        # this is to avoid memory duplication when the defualt exit is a constant
+        if self.default_exit_target is not None:
+            # it is a constant jump - create with the value of default_exit_target
+            const_class = vex_int_class(self.arch.bits)
+            self.next = Const(const_class(self.default_exit_target))
+        else:
+            # it is not constant get it from C
+            self.next = expr.IRExpr._from_c(c_irsb.next)
 
         # Data references
         self.data_refs = None
