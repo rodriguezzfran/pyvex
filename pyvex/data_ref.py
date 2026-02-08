@@ -1,3 +1,5 @@
+from .native import ffi
+
 def data_ref_type_str(dref_enum):
     """
     Translate an ``enum DataRefTypes`` value into a string representation.
@@ -53,3 +55,15 @@ class DataRef:
     @classmethod
     def from_c(cls, r):
         return cls(r.data_addr, r.size, r.data_type, r.stmt_idx, r.ins_addr)
+
+    @classmethod
+    def from_raw_bytes(cls, raw: bytes, count: int):
+        """
+        Return a list of DataRef objects from the raw bytes returned by C.
+        """
+        if count <= 0:
+            return []
+
+        c_buf = ffi.from_buffer(raw, require_writable=False)
+        c_refs = ffi.cast("DataRef*", c_buf)
+        return [cls.from_c(c_refs[i]) for i in range(count)]

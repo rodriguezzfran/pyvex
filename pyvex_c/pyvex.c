@@ -453,6 +453,10 @@ int vex_lift_multi(
 
     int test_counter = 0;
 
+    if ( insn_addr == 12598478 ){
+        printf(address_set_contains(&blocks_lifted_set, insn_addr) ? "True\n" : "False\n");
+    }
+
 	while (!is_queue_empty(&multi_lift_queue) && blocks_lifted_count < max_blocks) {
 
 		// Dequeue the next address to lift
