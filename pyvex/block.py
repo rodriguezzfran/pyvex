@@ -66,8 +66,9 @@ class IRSB(VEXObject):
         "_instructions",
         "_exit_statements",
         "default_exit_target",
-        "_instruction_addresses",
-        "_data_refs",          # cache: None / tuple[DataRef, ...]
+        "_instruction_addresses", # lazy inst addresses: None / tuple[...]
+        "_inst_addrs_raw", # the raw instruction addresses from C
+        "_data_refs",          # lazy data refs: None / tuple[DataRef, ...]
         "_data_refs_raw",      # the raw data refs from C
         "_data_ref_count",     # raw count of data refs from C
         "const_vals",
@@ -148,7 +149,8 @@ class IRSB(VEXObject):
         self._data_refs_raw = None # none until generated
         self._data_ref_count = 0   # 0 until generated
         self.const_vals = ()
-        self._instruction_addresses: tuple[int, ...] = ()
+        self._instruction_addresses: tuple[int, ...] = () # () means no insts, None means not yet generated
+        self._inst_addrs_raw = None # none until generated
 
         if data is not None:
             # This is the slower path (because we need to call _from_py() to copy the content in the returned IRSB to
@@ -451,16 +453,26 @@ class IRSB(VEXObject):
 
     @property
     def instruction_addresses(self) -> tuple[int, ...]:
-        """
-        Addresses of instructions in this block.
-        """
-        if self._instruction_addresses is None:
-            if self.statements is None:
-                self._instruction_addresses = ()
-            else:
-                self._instruction_addresses = tuple(
-                    (s.addr + s.delta) for s in self.statements if type(s) is stmt.IMark
-                )
+        if self._instruction_addresses is not None:
+            return self._instruction_addresses
+
+        # materialize instruction addresses from raw bytes if they are available
+        if self._inst_addrs_raw is not None:
+            import struct
+            self._instruction_addresses = struct.unpack(
+                f"{self._instructions}Q", self._inst_addrs_raw
+            )
+            self._inst_addrs_raw = None
+            return self._instruction_addresses
+
+        # fallback
+        if self.statements is None:
+            self._instruction_addresses = ()
+        else:
+            self._instruction_addresses = tuple(
+                (s.addr + s.delta) for s in self.statements if type(s) is
+    stmt.IMark
+            )
         return self._instruction_addresses
 
     @property
@@ -594,7 +606,14 @@ class IRSB(VEXObject):
         self._size = lift_r.size
         self.is_noop_block = lift_r.is_noop_block == 1
         self._instructions = lift_r.insts
-        self._instruction_addresses = tuple(itertools.islice(lift_r.inst_addrs, lift_r.insts))
+
+        # lazy inst addresses, we will generate them when self.instruction_addresses is called.
+        if lift_r.insts > 0:
+            self._instruction_addresses = None  # not yet generated
+            self._inst_addrs_raw = bytes(ffi.buffer(lift_r.inst_addrs, ffi.sizeof("Addr") * lift_r.insts))
+        else:
+            self._instruction_addresses = ()
+            self._inst_addrs_raw = None
 
         # Conditional exits
         exit_statements = []
@@ -673,6 +692,7 @@ class IRSB(VEXObject):
         self._size = size
         self._instructions = instructions
         self._instruction_addresses = instruction_addresses
+        self._inst_addrs_raw = None
         self._exit_statements = exit_statements
         self.default_exit_target = default_exit_target
 
@@ -693,8 +713,8 @@ class IRSB(VEXObject):
       self._data_refs = irsb._data_refs
       self._data_refs_raw = irsb._data_refs_raw
       self._data_ref_count = irsb._data_ref_count
-
-
+      # Lazy instructions
+      self._inst_addrs_raw = irsb._inst_addrs_raw
 
 class IRTypeEnv(VEXObject):
     """
