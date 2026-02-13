@@ -181,7 +181,9 @@ class LibVEXLifter(Lifter):
 
             self.irsbs: list[IRSB] = [None] * r
             for i in range(r):
-                self.irsbs[i] = IRSB.empty_block(self.arch, lift_results[i].inst_addrs[0])  # Assuming inst_addrs[0] gives the firs address of the block
+                if lift_results[i] == ffi.NULL or lift_results[i].irsb ==ffi.NULL:
+                    continue
+                self.irsbs[i] = IRSB.empty_block(self.arch, lift_results[i].inst_addrs[0])
                 self.irsbs[i]._from_c(lift_results[i], skip_stmts=self.skip_stmts)
 
         finally:

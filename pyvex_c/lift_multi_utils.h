@@ -18,8 +18,8 @@ typedef struct
 
 // Hash set bucket size (should be > 2x MAX_LIFTED_BLOCKS for good hash performance)
 enum {
-	BUCKET_SIZE = 256,
-	HASHSET_SIZE = 1024
+	BUCKET_SIZE = 1280,
+	HASHSET_SIZE = 5120
 };
 
 typedef struct
