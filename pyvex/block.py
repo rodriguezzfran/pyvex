@@ -28,10 +28,6 @@ from .types import Arch
 
 log = logging.getLogger("pyvex.block")
 
-# import time
-# exit_stmts_times_dict: dict[int, float] = {}
-
-
 class IRSB(VEXObject):
     """
     The IRSB is the primary interface to pyvex. Constructing one of these will make a call into LibVEX to perform a
@@ -66,11 +62,11 @@ class IRSB(VEXObject):
         "_instructions",
         "_exit_statements",
         "default_exit_target",
-        "_instruction_addresses", # lazy inst addresses: None / tuple[...]
-        "_inst_addrs_raw", # the raw instruction addresses from C
-        "_data_refs",          # lazy data refs: None / tuple[DataRef, ...]
-        "_data_refs_raw",      # the raw data refs from C
-        "_data_ref_count",     # raw count of data refs from C
+        "_instruction_addresses",   # lazy inst addresses: None / tuple[...]
+        "_inst_addrs_raw",          # the raw instruction addresses from C
+        "_data_refs",               # lazy data refs: None / tuple[DataRef, ...]
+        "_data_refs_raw",           # the raw data refs from C
+        "_data_ref_count",          # raw count of data refs from C
         "const_vals",
     ]
 
@@ -145,9 +141,9 @@ class IRSB(VEXObject):
         self._exit_statements: tuple[tuple[int, int, IRStmt], ...] | None = None
         self.is_noop_block: bool = False
         self.default_exit_target = None
-        self._data_refs = ()        # same as before, () means no data refs, None means not yet generated
-        self._data_refs_raw = None # none until generated
-        self._data_ref_count = 0   # 0 until generated
+        self._data_refs = ()        # () means no data refs, None means not yet generated
+        self._data_refs_raw = None  # none until generated
+        self._data_ref_count = 0    # 0 until generated
         self.const_vals = ()
         self._instruction_addresses: tuple[int, ...] = () # () means no insts, None means not yet generated
         self._inst_addrs_raw = None # none until generated
@@ -601,7 +597,6 @@ class IRSB(VEXObject):
             self.statements = None
             self.tyenv = None
 
-        #self.next = expr.IRExpr._from_c(c_irsb.next)
         self.jumpkind = get_enum_from_int(c_irsb.jumpkind)
         self._size = lift_r.size
         self.is_noop_block = lift_r.is_noop_block == 1
@@ -618,21 +613,18 @@ class IRSB(VEXObject):
         # Conditional exits
         exit_statements = []
         if skip_stmts:
-            # exit_statements_init_time = time.time()
+
             if lift_r.exit_count > self.MAX_EXITS:
                 # There are more exits than the default size of the exits array. We will need all statements
                 raise SkipStatementsError("exit_count exceeded MAX_EXITS (%d)" % self.MAX_EXITS)
             for i in range(lift_r.exit_count):
                 ex = lift_r.exits[i]
-                #exit_stmt = stmt.IRStmt._from_c(ex.stmt)
                 exit_stmt_dst = IRConst._from_c(ex.stmt.Ist.Exit.dst)
                 exit_stmt_jumpkind = get_enum_from_int(ex.stmt.Ist.Exit.jk)
                 exit_statements.append((ex.ins_addr, ex.stmt_idx, exit_stmt_dst, exit_stmt_jumpkind))
-                #exit_statements.append((ex.ins_addr, ex.stmt_idx, exit_stmt.dst, exit_stmt.jumpkind))
 
             self._exit_statements = tuple(exit_statements)
-            # global exit_stmts_times_dict
-            # exit_stmts_times_dict.update({len(exit_stmts_times_dict): time.time() - exit_statements_init_time})
+
         else:
             self._exit_statements = None  # It will be generated when self.exit_statements is called
         # The default exit

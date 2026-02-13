@@ -1,10 +1,3 @@
-//======================================================================
-//
-// This file provides the necesary functions to the multi lift feature
-// of angr, as a part of Bruno Guglielmotti and Franco Rodriguez tesis
-//
-//======================================================================
-
 #include <stdio.h>
 #include "lift_multi_utils.h"
 

@@ -53,7 +53,6 @@ jmp_buf jumpout;
 VEXLiftResult _lift_r;
 
 // Array to store multiple lifted blocks
-//VEXLiftResult _lift_result_array[MAX_LIFTED_BLOCKS];
 // Hash set to track already lifted blocks (for O(1) lookups)
 AddressHashSet blocks_lifted_set;
 // Has it been initialized?
@@ -451,12 +450,6 @@ int vex_lift_multi(
     Bool first_call_to_lift = True;
     Bool clearVEXAllocArray = False;
 
-    int test_counter = 0;
-
-    if ( insn_addr == 12598478 ){
-        printf(address_set_contains(&blocks_lifted_set, insn_addr) ? "True\n" : "False\n");
-    }
-
 	while (!is_queue_empty(&multi_lift_queue) && blocks_lifted_count < max_blocks) {
 
 		// Dequeue the next address to lift
@@ -521,7 +514,6 @@ int vex_lift_multi(
 
 	// Clear the queue and hash set after lifting
 	clear_queue(&multi_lift_queue);
-    //clear_address_set(&blocks_lifted_set);
 
 	return blocks_lifted_count;
 }

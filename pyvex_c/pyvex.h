@@ -95,7 +95,7 @@ void deregister_all_readonly_regions();
 Bool register_initial_register_value(UInt offset, UInt size, ULong value);
 Bool reset_initial_register_values();
 
-// Multi lift functions
+// Multi lift function
 #define MAX_LIFTED_BLOCKS 1000
 int vex_lift_multi(
 	VexArch guest,

@@ -3,7 +3,6 @@ from pyvex.types import Arch, LiftSource
 
 # pylint:disable=attribute-defined-outside-init
 
-
 class Lifter:
     __slots__ = (
         "data",
@@ -94,7 +93,7 @@ class Lifter:
         :param disasm:              Should the GymratLifter generate disassembly during lifting.
         :param dump_irsb:           Should the GymratLifter log the lifted IRSB.
         """
-        
+
         irsb: IRSB = IRSB.empty_block(self.arch, self.addr)
         self.data = data
         self.bytes_offset = bytes_offset
