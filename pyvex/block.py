@@ -1,5 +1,5 @@
 import copy
-import itertools
+import struct
 import logging
 from typing import Optional
 
@@ -454,7 +454,6 @@ class IRSB(VEXObject):
 
         # materialize instruction addresses from raw bytes if they are available
         if self._inst_addrs_raw is not None:
-            import struct
             self._instruction_addresses = struct.unpack(
                 f"{self._instructions}Q", self._inst_addrs_raw
             )
