@@ -46,9 +46,9 @@ typedef struct _ConstVal {
 	ULong value;  // 64-bit max
 } ConstVal;
 
-#define MAX_EXITS 400
-#define MAX_DATA_REFS 2000
-#define MAX_CONST_VALS 1000
+#define MAX_EXITS 100
+#define MAX_DATA_REFS 1000
+#define MAX_CONST_VALS 500
 
 typedef struct _VEXLiftResult {
 	IRSB* irsb;
@@ -86,11 +86,36 @@ VEXLiftResult *vex_lift(
 		int load_from_ro_regions,
 		int const_prop,
 		VexRegisterUpdates px_control,
-		unsigned int lookback_amount);
+		unsigned int lookback_amount,
+        Bool clearVEXAllocArray
+);
 
 Bool register_readonly_region(ULong start, ULong size, unsigned char* content);
 void deregister_all_readonly_regions();
 Bool register_initial_register_value(UInt offset, UInt size, ULong value);
 Bool reset_initial_register_values();
+
+// Multi lift function
+#define MAX_LIFTED_BLOCKS 1000
+int vex_lift_multi(
+	VexArch guest,
+	VexArchInfo archinfo,
+	unsigned long long insn_addr, // the first time this is the prime address to lift from
+	unsigned char *insn_start, // this is the pointer to the start of the instruction bytes
+	unsigned int max_blocks, // maximum number of blocks to lift
+	unsigned int max_insns, // for each block
+	unsigned int max_bytes, // for each block
+	int opt_level,
+	int traceflags,
+	int allow_arch_optimizations,
+	int strict_block_end,
+	int collect_data_refs,
+	int load_from_ro_regions,
+	int const_prop,
+	VexRegisterUpdates px_control,
+	unsigned int lookback,
+    int branch_delay_slot, // is the architecture a branch delay slot architecture?
+	VEXLiftResult *lift_results
+	);
 
 #endif

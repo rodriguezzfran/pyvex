@@ -2,11 +2,12 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 
+from pyvex.block import IRSB
 from pyvex.errors import LiftingException
 from pyvex.native import ffi, pvc
 from pyvex.types import CLiftSource, LibvexArch
 
-from .lift_function import Lifter
+from .lifter import Lifter
 
 log = logging.getLogger("pyvex.lifting.libvex")
 
@@ -29,8 +30,7 @@ LIBVEX_SUPPORTED_ARCHES = {
 }
 
 VEX_MAX_INSTRUCTIONS = 99
-VEX_MAX_BYTES = 5000
-
+VEX_MAX_BYTES = 400
 
 class VexRegisterUpdates:
     VexRegUpd_INVALID = 0x700
@@ -40,6 +40,7 @@ class VexRegisterUpdates:
     VexRegUpdAllregsAtEachInsn = 0x704
     VexRegUpdLdAllregsAtEachInsn = 0x705
 
+lift_results = ffi.new("VEXLiftResult[]", 1000)
 
 class LibVEXLifter(Lifter):
     __slots__ = ()
@@ -49,6 +50,26 @@ class LibVEXLifter(Lifter):
     @staticmethod
     def get_vex_log():
         return bytes(ffi.buffer(pvc.msg_buffer, pvc.msg_current_size)).decode() if pvc.msg_buffer != ffi.NULL else None
+
+    def _parameters_check_and_get_px_control(self) -> int:
+        if self.bytes_offset is None:
+            self.bytes_offset = 0
+
+        if self.max_bytes is None or self.max_bytes > VEX_MAX_BYTES:
+            self.max_bytes = VEX_MAX_BYTES
+
+        if self.max_inst is None or self.max_inst > VEX_MAX_INSTRUCTIONS:
+            self.max_inst = VEX_MAX_INSTRUCTIONS
+
+        if self.strict_block_end is None:
+            self.strict_block_end = True
+
+        if self.cross_insn_opt:
+            px_control = VexRegisterUpdates.VexRegUpdUnwindregsAtMemAccess
+        else:
+            px_control = VexRegisterUpdates.VexRegUpdLdAllregsAtEachInsn
+
+        return px_control
 
     def _lift(self):
         if TYPE_CHECKING:
@@ -61,46 +82,29 @@ class LibVEXLifter(Lifter):
             vex_arch = getattr(pvc, self.irsb.arch.vex_arch, None)
             assert vex_arch is not None
 
-            if self.bytes_offset is None:
-                self.bytes_offset = 0
-
-            if self.max_bytes is None or self.max_bytes > VEX_MAX_BYTES:
-                max_bytes = VEX_MAX_BYTES
-            else:
-                max_bytes = self.max_bytes
-
-            if self.max_inst is None or self.max_inst > VEX_MAX_INSTRUCTIONS:
-                max_inst = VEX_MAX_INSTRUCTIONS
-            else:
-                max_inst = self.max_inst
-
-            strict_block_end = self.strict_block_end
-            if strict_block_end is None:
-                strict_block_end = True
-
-            if self.cross_insn_opt:
-                px_control = VexRegisterUpdates.VexRegUpdUnwindregsAtMemAccess
-            else:
-                px_control = VexRegisterUpdates.VexRegUpdLdAllregsAtEachInsn
+            px_control = self._parameters_check_and_get_px_control()
 
             self.irsb.arch.vex_archinfo["hwcache_info"]["caches"] = ffi.NULL
+
             lift_r = pvc.vex_lift(
                 vex_arch,
                 self.irsb.arch.vex_archinfo,
                 self.data + self.bytes_offset,
                 self.irsb.addr,
-                max_inst,
-                max_bytes,
+                self.max_inst,
+                self.max_bytes,
                 self.opt_level,
                 self.traceflags,
                 self.allow_arch_optimizations,
-                strict_block_end,
+                self.strict_block_end,
                 1 if self.collect_data_refs else 0,
                 1 if self.load_from_ro_regions else 0,
                 1 if self.const_prop else 0,
                 px_control,
                 self.bytes_offset,
+                1
             )
+
             log_str = self.get_vex_log()
             if lift_r == ffi.NULL:
                 raise LiftingException("libvex: unknown error" if log_str is None else log_str)
@@ -115,3 +119,57 @@ class LibVEXLifter(Lifter):
         finally:
             _libvex_lock.release()
             self.irsb.arch.vex_archinfo["hwcache_info"]["caches"] = None
+
+    def _lift_multi(self) -> None:
+
+        if TYPE_CHECKING:
+            assert isinstance(self.arch, LibvexArch)
+            assert isinstance(self.data, CLiftSource)
+
+        try:
+            _libvex_lock.acquire()
+            self.arch.vex_archinfo["hwcache_info"]["caches"] = ffi.NULL
+
+            vex_arch = getattr(pvc, self.arch.vex_arch, None)
+            assert vex_arch is not None
+
+            px_control = self._parameters_check_and_get_px_control()
+
+            r: int = pvc.vex_lift_multi(
+                vex_arch,
+                self.arch.vex_archinfo,
+                self.addr,
+                self.data + self.bytes_offset,
+                self.max_blocks,
+                self.max_inst,
+                self.max_bytes,
+                self.opt_level,
+                self.traceflags,
+                1 if self.allow_arch_optimizations else 0,
+                1 if self.strict_block_end else 0,
+                1 if self.collect_data_refs else 0,
+                1 if self.load_from_ro_regions else 0,
+                1 if self.const_prop else 0,
+                px_control,
+                self.bytes_offset,
+                self.arch.branch_delay_slot,
+                lift_results,
+            )
+
+            log_str = self.get_vex_log()
+            if r == -1:
+                raise LiftingException("libvex: unknown error" if log_str is None else log_str)
+            else:
+                if log_str is not None:
+                    log.debug(log_str)
+
+            self.irsbs: list[IRSB] = [None] * r
+            for i in range(r):
+                if lift_results[i] == ffi.NULL or lift_results[i].irsb ==ffi.NULL:
+                    continue
+                self.irsbs[i] = IRSB.empty_block(self.arch, lift_results[i].inst_addrs[0])
+                self.irsbs[i]._from_c(lift_results[i], skip_stmts=self.skip_stmts)
+
+        finally:
+            _libvex_lock.release()
+            self.arch.vex_archinfo["hwcache_info"]["caches"] = None

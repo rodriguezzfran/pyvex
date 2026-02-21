@@ -16,7 +16,6 @@ web site at: http://bitblaze.cs.berkeley.edu/
 // translation from binary to VEX IR.
 //
 //======================================================================
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +26,8 @@ web site at: http://bitblaze.cs.berkeley.edu/
 #include "pyvex.h"
 #include "pyvex_internal.h"
 #include "logging.h"
+#include "lift_multi_utils.h"
+
 
 //======================================================================
 //
@@ -47,6 +48,15 @@ char *msg_buffer = NULL;
 size_t msg_capacity = 0, msg_current_size = 0;
 
 jmp_buf jumpout;
+
+// Variable to store the result of a lift
+VEXLiftResult _lift_r;
+
+// Array to store multiple lifted blocks
+// Hash set to track already lifted blocks (for O(1) lookups)
+AddressHashSet blocks_lifted_set;
+// Has it been initialized?
+Bool blocks_lifted_set_init = 0;
 
 //======================================================================
 //
@@ -100,11 +110,10 @@ static void *dispatch(void) {
 	return NULL;
 }
 
-
-//----------------------------------------------------------------------
+//======================================================================
 // Initializes VEX
 // It must be called before using VEX for translation to Valgrind IR
-//----------------------------------------------------------------------
+//======================================================================
 int vex_init() {
 	static int initialized = 0;
 	pyvex_debug("Initializing VEX.\n");
@@ -305,11 +314,13 @@ static void vex_prepare_vbi(VexArch arch, VexAbiInfo *vbi) {
 	}
 }
 
-VEXLiftResult _lift_r;
+//======================================================================
+//
+// Lift functions
+//
+//======================================================================
 
-//----------------------------------------------------------------------
-// Main entry point. Do a lift.
-//----------------------------------------------------------------------
+// Main entry point. Do a single lift and return it.
 VEXLiftResult *vex_lift(
 		VexArch guest,
 		VexArchInfo archinfo,
@@ -325,7 +336,9 @@ VEXLiftResult *vex_lift(
 		int load_from_ro_regions,
 		int const_prop,
 		VexRegisterUpdates px_control,
-		unsigned int lookback) {
+		unsigned int lookback,
+        Bool clearVEXAllocArray) {
+
 	VexRegisterUpdates pxControl = px_control;
 
 	vex_prepare_vai(guest, &archinfo);
@@ -362,12 +375,14 @@ VEXLiftResult *vex_lift(
 		_lift_r.is_noop_block = False;
 		_lift_r.data_ref_count = 0;
 		_lift_r.const_val_count = 0;
-		_lift_r.irsb = LibVEX_Lift(&vta, &vtr, &pxControl);
+		_lift_r.irsb = LibVEX_Lift(&vta, &vtr, &pxControl, clearVEXAllocArray);
 		if (!_lift_r.irsb) {
 			// Lifting failed
 			return NULL;
 		}
+
 		remove_noops(_lift_r.irsb);
+
 		if (guest == VexArchMIPS32) {
 			// This post processor may potentially remove statements.
 			// Call it before we get exit statements and such.
@@ -383,8 +398,122 @@ VEXLiftResult *vex_lift(
 		if (collect_data_refs || const_prop) {
 			execute_irsb(_lift_r.irsb, &_lift_r, guest, (Bool)load_from_ro_regions, (Bool)collect_data_refs, (Bool)const_prop);
 		}
+
 		return &_lift_r;
 	} else {
 		return NULL;
 	}
+}
+
+// Lift multiple blocks starting from a given address. Returns the number of blocks lifted.
+int vex_lift_multi(
+	VexArch guest,
+	VexArchInfo archinfo,
+	unsigned long long insn_addr, // the first time this is the prime address to lift from
+	unsigned char *insn_start, // this is the pointer to the start of the instruction bytes
+	unsigned int max_blocks, // maximum number of blocks to lift
+	unsigned int max_insns, // for each block
+	unsigned int max_bytes, // for each block
+	int opt_level,
+	int traceflags,
+	int allow_arch_optimizations,
+	int strict_block_end,
+	int collect_data_refs,
+	int load_from_ro_regions,
+	int const_prop,
+	VexRegisterUpdates px_control,
+	unsigned int lookback,
+    int branch_delay_slot,
+	VEXLiftResult *lift_result_array
+	) {
+
+    // the FIFO queue for addresses to lift
+	AddressQueue multi_lift_queue;
+
+	init_queue(&multi_lift_queue, max_blocks);
+
+    if (blocks_lifted_set_init == 0) {
+    	// Initialize hash set for tracking lifted blocks
+    	init_address_set(&blocks_lifted_set);
+    	blocks_lifted_set_init = 1;
+    }
+
+    // Counter for lifted blocks
+	int blocks_lifted_count = 0;
+
+	// Save the initial instruction bytes pointer
+	unsigned char *initial_insn_start = insn_start;
+
+	// Initialize the first address in the queue
+	enqueue(&multi_lift_queue, insn_addr);
+
+    Bool first_call_to_lift = True;
+    Bool clearVEXAllocArray = False;
+
+	while (!is_queue_empty(&multi_lift_queue) && blocks_lifted_count < max_blocks) {
+
+		// Dequeue the next address to lift
+		Addr current_addr = dequeue(&multi_lift_queue);
+
+        // Check if this block has already been lifted
+		if (address_set_contains(&blocks_lifted_set, current_addr)) {
+            pyvex_debug("Block at address 0x%lu has already been lifted\n", (unsigned long long)current_addr);
+			continue; // Skip already lifted block
+		}
+
+        // Check if the address is within the provided instruction bytes range
+        if (current_addr >= insn_addr + max_bytes) {
+            pyvex_debug("Address 0x%llx is out of bounds (0x%llx - 0x%llx), skipping.\n",
+                   (unsigned long long)current_addr,
+                   (unsigned long long)insn_addr,
+                   (unsigned long long)(insn_addr + max_bytes));
+            continue;
+        }
+
+		// Calculate the byte pointer for the current address
+		unsigned char *current_bytes = initial_insn_start + (current_addr - insn_addr);
+
+        if(first_call_to_lift) {
+            clearVEXAllocArray = True;
+            first_call_to_lift = False;
+        }
+
+		lift_result_array[blocks_lifted_count] = *vex_lift(
+			guest,
+			archinfo,
+			current_bytes,
+			current_addr,
+			max_insns,
+			max_bytes,
+			opt_level,
+			traceflags,
+			allow_arch_optimizations,
+			strict_block_end,
+			collect_data_refs,
+			load_from_ro_regions,
+			const_prop,
+			px_control,
+			lookback,
+            clearVEXAllocArray
+		);
+
+        clearVEXAllocArray = False; // only clear on the first call to lift
+
+        // Store the address of the lifted block in the hash set
+        address_set_insert(&blocks_lifted_set, lift_result_array[blocks_lifted_count].inst_addrs[0]);
+
+		// Extract exits and add them to the queue for further lifting
+		exits_to_fifo(&lift_result_array[blocks_lifted_count], &multi_lift_queue, branch_delay_slot);
+
+		// Increment the lifted blocks counter
+		blocks_lifted_count++;
+
+	}
+
+	pyvex_debug("\nTotal blocks lifted: %d\n", blocks_lifted_count);
+
+	// Clear the queue and hash set after lifting
+	clear_queue(&multi_lift_queue);
+
+	return blocks_lifted_count;
 }

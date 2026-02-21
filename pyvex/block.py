@@ -1,16 +1,16 @@
 import copy
-import itertools
+import struct
 import logging
 from typing import Optional
 
 from . import expr, stmt
-from .const import U1, get_type_size
+from .const import U1, get_type_size, IRConst, vex_int_class
 from .const_val import ConstVal
 from .data_ref import DataRef
 from .enums import VEXObject
 from .errors import SkipStatementsError
 from .expr import Const, RdTmp
-from .native import pvc
+from .native import pvc, ffi
 from .stmt import (
     CAS,
     LLSC,
@@ -27,7 +27,6 @@ from .stmt import (
 from .types import Arch
 
 log = logging.getLogger("pyvex.block")
-
 
 class IRSB(VEXObject):
     """
@@ -63,8 +62,11 @@ class IRSB(VEXObject):
         "_instructions",
         "_exit_statements",
         "default_exit_target",
-        "_instruction_addresses",
-        "data_refs",
+        "_instruction_addresses",   # lazy inst addresses: None / tuple[...]
+        "_inst_addrs_raw",          # the raw instruction addresses from C
+        "_data_refs",               # lazy data refs: None / tuple[DataRef, ...]
+        "_data_refs_raw",           # the raw data refs from C
+        "_data_ref_count",          # raw count of data refs from C
         "const_vals",
     ]
 
@@ -139,9 +141,12 @@ class IRSB(VEXObject):
         self._exit_statements: tuple[tuple[int, int, IRStmt], ...] | None = None
         self.is_noop_block: bool = False
         self.default_exit_target = None
-        self.data_refs = ()
+        self._data_refs = ()        # () means no data refs, None means not yet generated
+        self._data_refs_raw = None  # none until generated
+        self._data_ref_count = 0    # 0 until generated
         self.const_vals = ()
-        self._instruction_addresses: tuple[int, ...] = ()
+        self._instruction_addresses: tuple[int, ...] = () # () means no insts, None means not yet generated
+        self._inst_addrs_raw = None # none until generated
 
         if data is not None:
             # This is the slower path (because we need to call _from_py() to copy the content in the returned IRSB to
@@ -202,10 +207,38 @@ class IRSB(VEXObject):
                 ins_addr = stmt_.addr + stmt_.delta
             elif type(stmt_) is Exit:
                 assert ins_addr is not None
-                exit_statements.append((ins_addr, idx, stmt_))
+                exit_statements.append((ins_addr, idx, stmt_.dst, stmt_.jumpkind))
 
         self._exit_statements = tuple(exit_statements)
         return self._exit_statements
+
+    # materialization of data refs
+    @property
+    def data_refs(self):
+
+        # If data refs have already been generated, return them
+        if self._data_refs is not None:
+            return self._data_refs
+
+        # this is a inconsistent state that should not happen, but we check for it just in case
+        elif self._data_ref_count <= 0 or self._data_refs_raw is None:
+            raise ValueError(
+                "IRSB lazy data_refs inconsistent state: "
+                f"_data_refs=None, _data_ref_count={self._data_ref_count}, "
+                f"_data_refs_raw={'set' if self._data_refs_raw is not None else 'None'}"
+            )
+        # Generate data refs from raw data refs and cache them in self._data_refs, then return them
+        else:
+            refs = DataRef.from_raw_bytes(self._data_refs_raw, self._data_ref_count)
+            self._data_refs = tuple(refs)
+            self._data_refs_raw = None
+            return self._data_refs
+
+    @data_refs.setter
+    def data_refs(self, value):
+        self._data_refs = tuple(value) if value is not None else ()
+        self._data_refs_raw = None
+        self._data_ref_count = 0
 
     def copy(self) -> "IRSB":
         return copy.deepcopy(self)
@@ -416,16 +449,25 @@ class IRSB(VEXObject):
 
     @property
     def instruction_addresses(self) -> tuple[int, ...]:
-        """
-        Addresses of instructions in this block.
-        """
-        if self._instruction_addresses is None:
-            if self.statements is None:
-                self._instruction_addresses = ()
-            else:
-                self._instruction_addresses = tuple(
-                    (s.addr + s.delta) for s in self.statements if type(s) is stmt.IMark
-                )
+        if self._instruction_addresses is not None:
+            return self._instruction_addresses
+
+        # materialize instruction addresses from raw bytes if they are available
+        if self._inst_addrs_raw is not None:
+            self._instruction_addresses = struct.unpack(
+                f"{self._instructions}Q", self._inst_addrs_raw
+            )
+            self._inst_addrs_raw = None
+            return self._instruction_addresses
+
+        # fallback
+        if self.statements is None:
+            self._instruction_addresses = ()
+        else:
+            self._instruction_addresses = tuple(
+                (s.addr + s.delta) for s in self.statements if type(s) is
+    stmt.IMark
+            )
         return self._instruction_addresses
 
     @property
@@ -549,30 +591,39 @@ class IRSB(VEXObject):
         c_irsb = lift_r.irsb
         if not skip_stmts:
             self.statements = [stmt.IRStmt._from_c(c_irsb.stmts[i]) for i in range(c_irsb.stmts_used)]
-            self.tyenv = IRTypeEnv._from_c(self.arch, c_irsb.tyenv)
+            self.tyenv = IRTypeEnv._from_c(self.arch, c_irsb.tyenv) # SegFault in this line
         else:
             self.statements = None
             self.tyenv = None
 
-        self.next = expr.IRExpr._from_c(c_irsb.next)
         self.jumpkind = get_enum_from_int(c_irsb.jumpkind)
         self._size = lift_r.size
         self.is_noop_block = lift_r.is_noop_block == 1
         self._instructions = lift_r.insts
-        self._instruction_addresses = tuple(itertools.islice(lift_r.inst_addrs, lift_r.insts))
+
+        # lazy inst addresses, we will generate them when self.instruction_addresses is called.
+        if lift_r.insts > 0:
+            self._instruction_addresses = None  # not yet generated
+            self._inst_addrs_raw = bytes(ffi.buffer(lift_r.inst_addrs, ffi.sizeof("Addr") * lift_r.insts))
+        else:
+            self._instruction_addresses = ()
+            self._inst_addrs_raw = None
 
         # Conditional exits
         exit_statements = []
         if skip_stmts:
+
             if lift_r.exit_count > self.MAX_EXITS:
                 # There are more exits than the default size of the exits array. We will need all statements
                 raise SkipStatementsError("exit_count exceeded MAX_EXITS (%d)" % self.MAX_EXITS)
             for i in range(lift_r.exit_count):
                 ex = lift_r.exits[i]
-                exit_stmt = stmt.IRStmt._from_c(ex.stmt)
-                exit_statements.append((ex.ins_addr, ex.stmt_idx, exit_stmt))
+                exit_stmt_dst = IRConst._from_c(ex.stmt.Ist.Exit.dst)
+                exit_stmt_jumpkind = get_enum_from_int(ex.stmt.Ist.Exit.jk)
+                exit_statements.append((ex.ins_addr, ex.stmt_idx, exit_stmt_dst, exit_stmt_jumpkind))
 
             self._exit_statements = tuple(exit_statements)
+
         else:
             self._exit_statements = None  # It will be generated when self.exit_statements is called
         # The default exit
@@ -581,12 +632,27 @@ class IRSB(VEXObject):
         else:
             self.default_exit_target = None
 
-        # Data references
-        self.data_refs = None
+        # this is to avoid memory duplication when the defualt exit is a constant
+        if self.default_exit_target is not None:
+            # it is a constant jump - create with the value of default_exit_target
+            const_class = vex_int_class(self.arch.bits)
+            self.next = Const(const_class(self.default_exit_target))
+        else:
+            # it is not constant get it from C
+            self.next = expr.IRExpr._from_c(c_irsb.next)
+
+        # Data references (LAZY)
+        self._data_refs = ()
+        self._data_refs_raw = None
+        self._data_ref_count = 0
+
         if lift_r.data_ref_count > 0:
             if lift_r.data_ref_count > self.MAX_DATA_REFS:
                 raise SkipStatementsError(f"data_ref_count exceeded MAX_DATA_REFS ({self.MAX_DATA_REFS})")
-            self.data_refs = [DataRef.from_c(lift_r.data_refs[i]) for i in range(lift_r.data_ref_count)]
+
+            self._data_ref_count = lift_r.data_ref_count
+            self._data_refs = None  # None state means "not yet generated" but will be generated when self.data_refs is called
+            self._data_refs_raw = bytes(ffi.buffer(lift_r.data_refs, ffi.sizeof("DataRef") * lift_r.data_ref_count))
 
         # Const values
         self.const_vals = None
@@ -617,23 +683,29 @@ class IRSB(VEXObject):
         self._size = size
         self._instructions = instructions
         self._instruction_addresses = instruction_addresses
+        self._inst_addrs_raw = None
         self._exit_statements = exit_statements
         self.default_exit_target = default_exit_target
 
     def _from_py(self, irsb):
-        self._set_attributes(
-            irsb.statements,
-            irsb.next,
-            irsb.tyenv,
-            irsb.jumpkind,
-            irsb.direct_next,
-            irsb.size,
-            instructions=irsb._instructions,
-            instruction_addresses=irsb._instruction_addresses,
-            exit_statements=irsb.exit_statements,
-            default_exit_target=irsb.default_exit_target,
-        )
-
+      self._set_attributes(
+          irsb.statements,
+          irsb.next,
+          irsb.tyenv,
+          irsb.jumpkind,
+          irsb.direct_next,
+          irsb.size,
+          instructions=irsb._instructions,
+          instruction_addresses=irsb._instruction_addresses,
+          exit_statements=irsb.exit_statements,
+          default_exit_target=irsb.default_exit_target,
+      )
+      # Transfer lazy data_refs state
+      self._data_refs = irsb._data_refs
+      self._data_refs_raw = irsb._data_refs_raw
+      self._data_ref_count = irsb._data_ref_count
+      # Lazy instructions
+      self._inst_addrs_raw = irsb._inst_addrs_raw
 
 class IRTypeEnv(VEXObject):
     """
