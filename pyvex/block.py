@@ -1,6 +1,5 @@
 import copy
 import struct
-
 import logging
 from typing import Optional
 
