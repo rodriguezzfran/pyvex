@@ -457,8 +457,10 @@ int vex_lift_multi(
 
         // Check if this block has already been lifted
 		if (address_set_contains(&blocks_lifted_set, current_addr)) {
-            pyvex_debug("Block at address 0x%lu has already been lifted\n", (unsigned long long)current_addr);
-			continue; // Skip already lifted block
+            if(!first_call_to_lift) { // Always lift the initial address, even if it's in the set, to ensure we get a result for it. This is because the set is global and may contain blocks lifted from previous calls to vex_lift_multi.
+                pyvex_debug("Block at address 0x%lu has already been lifted\n", (unsigned long long)current_addr);
+                continue;
+            }
 		}
 
         // Check if the address is within the provided instruction bytes range

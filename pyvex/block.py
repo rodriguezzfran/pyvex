@@ -34,6 +34,8 @@ const_vals_generation_times = []
 insns_addrs_generation_times = []
 exit_stmts_generation_times = []
 from_c_times = []
+access_to_insns_addrs_count: int = 0
+access_to_data_refs_count: int = 0
 
 class IRSB(VEXObject):
     """
@@ -222,9 +224,11 @@ class IRSB(VEXObject):
     # materialization of data refs
     @property
     def data_refs(self):
+        global access_to_data_refs_count
 
         # If data refs have already been generated, return them
         if self._data_refs is not None:
+            access_to_data_refs_count += 1
             return self._data_refs
 
         # this is a inconsistent state that should not happen, but we check for it just in case
@@ -458,7 +462,9 @@ class IRSB(VEXObject):
 
     @property
     def instruction_addresses(self) -> tuple[int, ...]:
+        global access_to_insns_addrs_count
         if self._instruction_addresses is not None:
+            access_to_insns_addrs_count += 1
             return self._instruction_addresses
 
         init_time = time.perf_counter()
