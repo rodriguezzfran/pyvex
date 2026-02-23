@@ -102,7 +102,8 @@ class LibVEXLifter(Lifter):
                 1 if self.const_prop else 0,
                 px_control,
                 self.bytes_offset,
-                1
+                1,
+                ffi.NULL  # output buffer - NULL means use global _lift_r
             )
 
             log_str = self.get_vex_log()
