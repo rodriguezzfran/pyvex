@@ -87,7 +87,8 @@ VEXLiftResult *vex_lift(
 		int const_prop,
 		VexRegisterUpdates px_control,
 		unsigned int lookback_amount,
-        Bool clearVEXAllocArray
+        Bool clearVEXAllocArray,
+        VEXLiftResult *output
 );
 
 Bool register_readonly_region(ULong start, ULong size, unsigned char* content);
