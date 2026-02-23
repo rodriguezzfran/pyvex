@@ -28,6 +28,13 @@ from .types import Arch
 
 log = logging.getLogger("pyvex.block")
 
+import time
+data_refs_generation_times = []
+const_vals_generation_times = []
+insns_addrs_generation_times = []
+exit_stmts_generation_times = []
+from_c_times = []
+
 class IRSB(VEXObject):
     """
     The IRSB is the primary interface to pyvex. Constructing one of these will make a call into LibVEX to perform a
@@ -229,9 +236,11 @@ class IRSB(VEXObject):
             )
         # Generate data refs from raw data refs and cache them in self._data_refs, then return them
         else:
+            init_time = time.perf_counter()
             refs = DataRef.from_raw_bytes(self._data_refs_raw, self._data_ref_count)
             self._data_refs = tuple(refs)
             self._data_refs_raw = None
+            data_refs_generation_times.append(time.perf_counter() - init_time)
             return self._data_refs
 
     @data_refs.setter
@@ -452,12 +461,14 @@ class IRSB(VEXObject):
         if self._instruction_addresses is not None:
             return self._instruction_addresses
 
+        init_time = time.perf_counter()
         # materialize instruction addresses from raw bytes if they are available
         if self._inst_addrs_raw is not None:
             self._instruction_addresses = struct.unpack(
                 f"{self._instructions}Q", self._inst_addrs_raw
             )
             self._inst_addrs_raw = None
+            insns_addrs_generation_times.append(time.perf_counter() - init_time)
             return self._instruction_addresses
 
         # fallback
@@ -468,6 +479,8 @@ class IRSB(VEXObject):
                 (s.addr + s.delta) for s in self.statements if type(s) is
     stmt.IMark
             )
+
+        insns_addrs_generation_times.append(time.perf_counter() - init_time)
         return self._instruction_addresses
 
     @property
@@ -588,6 +601,7 @@ class IRSB(VEXObject):
     #
 
     def _from_c(self, lift_r, skip_stmts=False):
+        init_time_from_c = time.perf_counter()
         c_irsb = lift_r.irsb
         if not skip_stmts:
             self.statements = [stmt.IRStmt._from_c(c_irsb.stmts[i]) for i in range(c_irsb.stmts_used)]
@@ -616,6 +630,7 @@ class IRSB(VEXObject):
             if lift_r.exit_count > self.MAX_EXITS:
                 # There are more exits than the default size of the exits array. We will need all statements
                 raise SkipStatementsError("exit_count exceeded MAX_EXITS (%d)" % self.MAX_EXITS)
+            init_time_exit_stmts = time.perf_counter()
             for i in range(lift_r.exit_count):
                 ex = lift_r.exits[i]
                 exit_stmt_dst = IRConst._from_c(ex.stmt.Ist.Exit.dst)
@@ -623,6 +638,7 @@ class IRSB(VEXObject):
                 exit_statements.append((ex.ins_addr, ex.stmt_idx, exit_stmt_dst, exit_stmt_jumpkind))
 
             self._exit_statements = tuple(exit_statements)
+            exit_stmts_generation_times.append(time.perf_counter() - init_time_exit_stmts)
 
         else:
             self._exit_statements = None  # It will be generated when self.exit_statements is called
@@ -655,11 +671,14 @@ class IRSB(VEXObject):
             self._data_refs_raw = bytes(ffi.buffer(lift_r.data_refs, ffi.sizeof("DataRef") * lift_r.data_ref_count))
 
         # Const values
+        init_time_const_vals = time.perf_counter()
         self.const_vals = None
         if lift_r.const_val_count > 0:
             if lift_r.const_val_count > self.MAX_CONST_VALS:
                 raise SkipStatementsError(f"const_val_count exceeded MAX_CONST_VALS ({self.MAX_CONST_VALS})")
             self.const_vals = [ConstVal.from_c(lift_r.const_vals[i]) for i in range(lift_r.const_val_count)]
+        const_vals_generation_times.append(time.perf_counter() - init_time_const_vals)
+        from_c_times.append(time.perf_counter() - init_time_from_c)
 
     def _set_attributes(
         self,

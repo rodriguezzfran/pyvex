@@ -42,6 +42,10 @@ class VexRegisterUpdates:
 
 lift_results = ffi.new("VEXLiftResult[]", 1000)
 
+import time
+call_to_vex_lift_times = []
+call_to_vex_lift_multi_times = []
+
 class LibVEXLifter(Lifter):
     __slots__ = ()
 
@@ -86,6 +90,8 @@ class LibVEXLifter(Lifter):
 
             self.irsb.arch.vex_archinfo["hwcache_info"]["caches"] = ffi.NULL
 
+            init_time = time.perf_counter()
+
             lift_r = pvc.vex_lift(
                 vex_arch,
                 self.irsb.arch.vex_archinfo,
@@ -104,6 +110,7 @@ class LibVEXLifter(Lifter):
                 self.bytes_offset,
                 1
             )
+            call_to_vex_lift_times.append(time.perf_counter() - init_time)
 
             log_str = self.get_vex_log()
             if lift_r == ffi.NULL:
@@ -135,6 +142,8 @@ class LibVEXLifter(Lifter):
 
             px_control = self._parameters_check_and_get_px_control()
 
+            init_time = time.perf_counter()
+
             r: int = pvc.vex_lift_multi(
                 vex_arch,
                 self.arch.vex_archinfo,
@@ -155,6 +164,8 @@ class LibVEXLifter(Lifter):
                 self.arch.branch_delay_slot,
                 lift_results,
             )
+
+            call_to_vex_lift_multi_times.append(time.perf_counter() - init_time)
 
             log_str = self.get_vex_log()
             if r == -1:
