@@ -41,6 +41,9 @@ class VexRegisterUpdates:
     VexRegUpdLdAllregsAtEachInsn = 0x705
 
 
+import time
+call_to_vex_lift_times = []
+
 class LibVEXLifter(Lifter):
     __slots__ = ()
 
@@ -84,6 +87,8 @@ class LibVEXLifter(Lifter):
                 px_control = VexRegisterUpdates.VexRegUpdLdAllregsAtEachInsn
 
             self.irsb.arch.vex_archinfo["hwcache_info"]["caches"] = ffi.NULL
+
+            init_time = time.perf_counter()
             lift_r = pvc.vex_lift(
                 vex_arch,
                 self.irsb.arch.vex_archinfo,
@@ -101,6 +106,8 @@ class LibVEXLifter(Lifter):
                 px_control,
                 self.bytes_offset,
             )
+            call_to_vex_lift_times.append(time.perf_counter() - init_time)
+
             log_str = self.get_vex_log()
             if lift_r == ffi.NULL:
                 raise LiftingException("libvex: unknown error" if log_str is None else log_str)

@@ -28,6 +28,13 @@ from .types import Arch
 
 log = logging.getLogger("pyvex.block")
 
+import time
+data_refs_generation_times = []
+const_vals_generation_times = []
+insns_addrs_generation_times = []
+exit_stmts_generation_times = []
+from_c_times = []
+access_to_insns_addrs_count: int = 0
 
 class IRSB(VEXObject):
     """
@@ -420,12 +427,17 @@ class IRSB(VEXObject):
         Addresses of instructions in this block.
         """
         if self._instruction_addresses is None:
+            init_time_insns_addrs = time.perf_counter()
             if self.statements is None:
                 self._instruction_addresses = ()
             else:
                 self._instruction_addresses = tuple(
                     (s.addr + s.delta) for s in self.statements if type(s) is stmt.IMark
                 )
+            insns_addrs_generation_times.append(time.perf_counter() - init_time_insns_addrs)
+        else:
+            global access_to_insns_addrs_count
+            access_to_insns_addrs_count += 1
         return self._instruction_addresses
 
     @property
@@ -546,6 +558,7 @@ class IRSB(VEXObject):
     #
 
     def _from_c(self, lift_r, skip_stmts=False):
+        init_time_from_c = time.perf_counter()
         c_irsb = lift_r.irsb
         if not skip_stmts:
             self.statements = [stmt.IRStmt._from_c(c_irsb.stmts[i]) for i in range(c_irsb.stmts_used)]
@@ -559,7 +572,10 @@ class IRSB(VEXObject):
         self._size = lift_r.size
         self.is_noop_block = lift_r.is_noop_block == 1
         self._instructions = lift_r.insts
+
+        init_time_insns_addrs = time.perf_counter()
         self._instruction_addresses = tuple(itertools.islice(lift_r.inst_addrs, lift_r.insts))
+        insns_addrs_generation_times.append(time.perf_counter() - init_time_insns_addrs)
 
         # Conditional exits
         exit_statements = []
@@ -567,12 +583,14 @@ class IRSB(VEXObject):
             if lift_r.exit_count > self.MAX_EXITS:
                 # There are more exits than the default size of the exits array. We will need all statements
                 raise SkipStatementsError("exit_count exceeded MAX_EXITS (%d)" % self.MAX_EXITS)
+            init_time_exit_stmts = time.perf_counter()
             for i in range(lift_r.exit_count):
                 ex = lift_r.exits[i]
                 exit_stmt = stmt.IRStmt._from_c(ex.stmt)
                 exit_statements.append((ex.ins_addr, ex.stmt_idx, exit_stmt))
 
             self._exit_statements = tuple(exit_statements)
+            exit_stmts_generation_times.append(time.perf_counter() - init_time_exit_stmts)
         else:
             self._exit_statements = None  # It will be generated when self.exit_statements is called
         # The default exit
@@ -581,19 +599,25 @@ class IRSB(VEXObject):
         else:
             self.default_exit_target = None
 
+        init_time_data_refs = time.perf_counter()
         # Data references
         self.data_refs = None
         if lift_r.data_ref_count > 0:
             if lift_r.data_ref_count > self.MAX_DATA_REFS:
                 raise SkipStatementsError(f"data_ref_count exceeded MAX_DATA_REFS ({self.MAX_DATA_REFS})")
             self.data_refs = [DataRef.from_c(lift_r.data_refs[i]) for i in range(lift_r.data_ref_count)]
+        data_refs_generation_times.append(time.perf_counter() - init_time_data_refs)
 
+        init_time_const_vals = time.perf_counter()
         # Const values
         self.const_vals = None
         if lift_r.const_val_count > 0:
             if lift_r.const_val_count > self.MAX_CONST_VALS:
                 raise SkipStatementsError(f"const_val_count exceeded MAX_CONST_VALS ({self.MAX_CONST_VALS})")
             self.const_vals = [ConstVal.from_c(lift_r.const_vals[i]) for i in range(lift_r.const_val_count)]
+        const_vals_generation_times.append(time.perf_counter() - init_time_const_vals)
+
+        from_c_times.append(time.perf_counter() - init_time_from_c)
 
     def _set_attributes(
         self,
