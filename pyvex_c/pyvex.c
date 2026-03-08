@@ -337,9 +337,13 @@ VEXLiftResult *vex_lift(
 		int const_prop,
 		VexRegisterUpdates px_control,
 		unsigned int lookback,
-        Bool clearVEXAllocArray) {
+        Bool clearVEXAllocArray,
+        VEXLiftResult *output) {
 
 	VexRegisterUpdates pxControl = px_control;
+	
+	// Use the provided output buffer, or fall back to global _lift_r if NULL
+	VEXLiftResult *result = (output != NULL) ? output : &_lift_r;
 
 	vex_prepare_vai(guest, &archinfo);
 	vex_prepare_vbi(guest, &vbi);
@@ -372,34 +376,36 @@ VEXLiftResult *vex_lift(
 	// Do the actual translation
 	if (setjmp(jumpout) == 0) {
 		LibVEX_Update_Control(&vc);
-		_lift_r.is_noop_block = False;
-		_lift_r.data_ref_count = 0;
-		_lift_r.const_val_count = 0;
-		_lift_r.irsb = LibVEX_Lift(&vta, &vtr, &pxControl, clearVEXAllocArray);
-		if (!_lift_r.irsb) {
+		result->is_noop_block = False;
+		result->data_ref_count = 0;
+		result->const_val_count = 0;
+
+		result->irsb = LibVEX_Lift(&vta, &vtr, &pxControl, clearVEXAllocArray);
+
+		if (!result->irsb) {
 			// Lifting failed
 			return NULL;
 		}
 
-		remove_noops(_lift_r.irsb);
+		remove_noops(result->irsb);
 
 		if (guest == VexArchMIPS32) {
 			// This post processor may potentially remove statements.
 			// Call it before we get exit statements and such.
-			mips32_post_processor_fix_unconditional_exit(_lift_r.irsb);
+			mips32_post_processor_fix_unconditional_exit(result->irsb);
 		}
-		get_exits_and_inst_addrs(_lift_r.irsb, &_lift_r);
-		get_default_exit_target(_lift_r.irsb, &_lift_r);
-		if (guest == VexArchARM && _lift_r.insts > 0) {
-			arm_post_processor_determine_calls(_lift_r.inst_addrs[0], _lift_r.size, _lift_r.insts, _lift_r.irsb);
+		get_exits_and_inst_addrs(result->irsb, result);
+		get_default_exit_target(result->irsb, result);
+		if (guest == VexArchARM && result->insts > 0) {
+			arm_post_processor_determine_calls(result->inst_addrs[0], result->size, result->insts, result->irsb);
 		}
-		zero_division_side_exits(_lift_r.irsb);
-		get_is_noop_block(_lift_r.irsb, &_lift_r);
+		zero_division_side_exits(result->irsb);
+		get_is_noop_block(result->irsb, result);
 		if (collect_data_refs || const_prop) {
-			execute_irsb(_lift_r.irsb, &_lift_r, guest, (Bool)load_from_ro_regions, (Bool)collect_data_refs, (Bool)const_prop);
+			execute_irsb(result->irsb, result, guest, (Bool)load_from_ro_regions, (Bool)collect_data_refs, (Bool)const_prop);
 		}
 
-		return &_lift_r;
+		return result;
 	} else {
 		return NULL;
 	}
@@ -455,11 +461,12 @@ int vex_lift_multi(
 		// Dequeue the next address to lift
 		Addr current_addr = dequeue(&multi_lift_queue);
 
-        // Check if this block has already been lifted
-		if (address_set_contains(&blocks_lifted_set, current_addr)) {
-            pyvex_debug("Block at address 0x%lu has already been lifted\n", (unsigned long long)current_addr);
-			continue; // Skip already lifted block
-		}
+		// Check if this block has already been lifted
+        if (address_set_contains(&blocks_lifted_set, current_addr)) {
+            if(!first_call_to_lift) { 
+                continue;
+            }
+        }
 
         // Check if the address is within the provided instruction bytes range
         if (current_addr >= insn_addr + max_bytes) {
@@ -478,7 +485,7 @@ int vex_lift_multi(
             first_call_to_lift = False;
         }
 
-		lift_result_array[blocks_lifted_count] = *vex_lift(
+		VEXLiftResult *lift_result = vex_lift(
 			guest,
 			archinfo,
 			current_bytes,
@@ -494,8 +501,15 @@ int vex_lift_multi(
 			const_prop,
 			px_control,
 			lookback,
-            clearVEXAllocArray
+            clearVEXAllocArray,
+            &lift_result_array[blocks_lifted_count]  // Write directly to the array
 		);
+
+		if (lift_result == NULL) {
+			fprintf(stderr, "[ERROR] vex_lift returned NULL for addr 0x%llx\n", 
+			        (unsigned long long)current_addr);
+			continue;
+		}
 
         clearVEXAllocArray = False; // only clear on the first call to lift
 

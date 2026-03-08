@@ -102,7 +102,8 @@ class LibVEXLifter(Lifter):
                 1 if self.const_prop else 0,
                 px_control,
                 self.bytes_offset,
-                1
+                1,
+                ffi.NULL  # output buffer - NULL means use global _lift_r
             )
 
             log_str = self.get_vex_log()
@@ -165,8 +166,9 @@ class LibVEXLifter(Lifter):
 
             self.irsbs: list[IRSB] = [None] * r
             for i in range(r):
-                if lift_results[i] == ffi.NULL or lift_results[i].irsb ==ffi.NULL:
+                if lift_results[i] == ffi.NULL or lift_results[i].irsb == ffi.NULL:
                     continue
+                    
                 self.irsbs[i] = IRSB.empty_block(self.arch, lift_results[i].inst_addrs[0])
                 self.irsbs[i]._from_c(lift_results[i], skip_stmts=self.skip_stmts)
 
